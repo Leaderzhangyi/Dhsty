@@ -1,0 +1,9 @@
+*.out
+*.pth
+datasets/
+logs/
+
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
