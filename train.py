@@ -91,12 +91,17 @@ parser.add_argument('--hidden_dim', default=512, type=int,
                         help="Size of the embeddings (dimension of the transformer)")
 args = parser.parse_args()
 
+
+# cuda是否可用
 USE_CUDA = torch.cuda.is_available()
 device = torch.device("cuda:0" if USE_CUDA else "cpu")
 
+# 检查存储路径是否存在
 if not os.path.exists(args.save_dir):
     os.makedirs(args.save_dir)
 
+
+# 检查日志文件是否存在
 if not os.path.exists(args.log_dir):
     os.mkdir(args.log_dir)
 writer = SummaryWriter(log_dir=args.log_dir)
@@ -120,10 +125,11 @@ content_tf = train_transform()
 style_tf = train_transform()
 
 
-
+# 加载内容和图像数据集，运用自定义的图像transform，用自己构造的Dataset类来得到dataset，用于后续加载loader
 content_dataset = FlatFolderDataset(args.content_dir, content_tf)
 style_dataset = FlatFolderDataset(args.style_dir, style_tf)
 
+# dataset -> dataloader
 content_iter = iter(data.DataLoader(
     content_dataset, batch_size=args.batch_size,
     sampler=InfiniteSamplerWrapper(content_dataset),
@@ -133,12 +139,13 @@ style_iter = iter(data.DataLoader(
     sampler=InfiniteSamplerWrapper(style_dataset),
     num_workers=args.n_threads))
  
+
+# 定义优化器
 optimizer = torch.optim.Adam([ 
                               {'params': network.transformer.parameters()},
                               {'params': network.decode.parameters()},
                               {'params': network.embedding.parameters()},        
                               ], lr=args.lr)
-
 
 if not os.path.exists(args.save_dir+"/test"):
     os.makedirs(args.save_dir+"/test")

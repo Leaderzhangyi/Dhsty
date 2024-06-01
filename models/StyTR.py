@@ -138,6 +138,13 @@ class StyTrans(nn.Module):
     """ This is the style transform transformer module """
     
     def __init__(self,encoder,decoder,PatchEmbed, transformer,args):
+        """
+            encoder: vgg
+            decoder: StyTR.decoder
+            PatchEmbed: 作者自己设计的CAPE位置编码
+            transformer: 多头注意力机制
+        """
+        # encoder 为vgg
 
         super().__init__()
         enc_layers = list(encoder.children())
@@ -147,10 +154,12 @@ class StyTrans(nn.Module):
         self.enc_4 = nn.Sequential(*enc_layers[18:31])  # relu3_1 -> relu4_1
         self.enc_5 = nn.Sequential(*enc_layers[31:44])  # relu4_1 -> relu5_1
         
+        # 不需要梯度
         for name in ['enc_1', 'enc_2', 'enc_3', 'enc_4', 'enc_5']:
             for param in getattr(self, name).parameters():
                 param.requires_grad = False
 
+        # mse_loss 
         self.mse_loss = nn.MSELoss()
         self.transformer = transformer
         hidden_dim = transformer.d_model       
