@@ -7,7 +7,7 @@ from PIL import Image
 from PIL import ImageFile
 from tensorboardX import SummaryWriter
 from torchvision import transforms
-from tqdm import tqdm
+from tqdm.auto import tqdm
 from pathlib import Path
 import models.transformer as transformer
 import models.StyTR  as StyTR 
@@ -95,6 +95,14 @@ args = parser.parse_args()
 # cuda是否可用
 USE_CUDA = torch.cuda.is_available()
 device = torch.device("cuda:0" if USE_CUDA else "cpu")
+print(USE_CUDA)
+# if USE_CUDA == True:
+#     print(torch.cuda.device_count())
+#     for i in range(torch.cuda.device_count()):
+#         deviceName = torch.cuda.get_device_name(i)
+# else:
+#     deviceName = "CPU"
+# print("Using device: ",deviceName)
 
 # 检查存储路径是否存在
 if not os.path.exists(args.save_dir):
@@ -115,6 +123,8 @@ vgg = nn.Sequential(*list(vgg.children())[:44])
 decoder = StyTR.decoder
 embedding = StyTR.PatchEmbed()
 Trans = transformer.Transformer()
+
+# 各个模块拼接 组成整体网络
 with torch.no_grad():
     network = StyTR.StyTrans(vgg,decoder,embedding, Trans,args)
 network.train()
@@ -151,8 +161,8 @@ if not os.path.exists(args.save_dir+"/test"):
     os.makedirs(args.save_dir+"/test")
 
 
-
-for i in tqdm(range(args.max_iter)):
+progress_bar = tqdm(range(args.max_iter),desc='Training')
+for i in progress_bar:
 
     if i < 1e4:
         warmup_learning_rate(optimizer, iteration_count=i)
@@ -160,8 +170,11 @@ for i in tqdm(range(args.max_iter)):
         adjust_learning_rate(optimizer, iteration_count=i)
 
     # print('learning_rate: %s' % str(optimizer.param_groups[0]['lr']))
+    # 从迭代器中加载内容和风格图像
     content_images = next(content_iter).to(device)
     style_images = next(style_iter).to(device)  
+
+    # 
     out, loss_c, loss_s,l_identity1, l_identity2 = network(content_images, style_images)
 
     if i % 100 == 0:
@@ -176,10 +189,12 @@ for i in tqdm(range(args.max_iter)):
     loss_c = args.content_weight * loss_c
     loss_s = args.style_weight * loss_s
     loss = loss_c + loss_s + (l_identity1 * 70) + (l_identity2 * 1) 
-  
-    print(loss.sum().cpu().detach().numpy(),"-content:",loss_c.sum().cpu().detach().numpy(),"-style:",loss_s.sum().cpu().detach().numpy()
-              ,"-l1:",l_identity1.sum().cpu().detach().numpy(),"-l2:",l_identity2.sum().cpu().detach().numpy()
-              )
+    
+
+    # print(loss.sum().cpu().detach().numpy(),"-content:",loss_c.sum().cpu().detach().numpy(),"-style:",loss_s.sum().cpu().detach().numpy()
+    #           ,"-l1:",l_identity1.sum().cpu().detach().numpy(),"-l2:",l_identity2.sum().cpu().detach().numpy()
+    #           )
+    progress_bar.set_postfix({'loss': loss.sum().cpu().detach().numpy()})
        
     optimizer.zero_grad()
     loss.sum().backward()
@@ -192,20 +207,20 @@ for i in tqdm(range(args.max_iter)):
     writer.add_scalar('total_loss', loss.sum().item(), i + 1)
 
     if (i + 1) % args.save_model_interval == 0 or (i + 1) == args.max_iter:
-        state_dict = network.module.transformer.state_dict()
+        state_dict = network.transformer.state_dict()
         for key in state_dict.keys():
             state_dict[key] = state_dict[key].to(torch.device('cpu'))
         torch.save(state_dict,
                    '{:s}/transformer_iter_{:d}.pth'.format(args.save_dir,
                                                            i + 1))
 
-        state_dict = network.module.decode.state_dict()
+        state_dict = network.decode.state_dict()
         for key in state_dict.keys():
             state_dict[key] = state_dict[key].to(torch.device('cpu'))
         torch.save(state_dict,
                    '{:s}/decoder_iter_{:d}.pth'.format(args.save_dir,
                                                            i + 1))
-        state_dict = network.module.embedding.state_dict()
+        state_dict = network.embedding.state_dict()
         for key in state_dict.keys():
             state_dict[key] = state_dict[key].to(torch.device('cpu'))
         torch.save(state_dict,

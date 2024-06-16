@@ -7,8 +7,9 @@ from torch import nn, Tensor
 from function import normal,normal_style
 import numpy as np
 import os
-device = torch.device("cuda:2" if torch.cuda.is_available() else "cpu")
-os.environ["CUDA_VISIBLE_DEVICES"] = "2, 3"
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+# os.environ["CUDA_VISIBLE_DEVICES"] = "2, 3"
+
 class Transformer(nn.Module):
 
     def __init__(self, d_model=512, nhead=8, num_encoder_layers=3,
@@ -35,6 +36,7 @@ class Transformer(nn.Module):
         self.nhead = nhead
 
         self.new_ps = nn.Conv2d(512 , 512 , (1,1))
+        # 自适应平均池化层，将输入特征图的大小调整为 18x18
         self.averagepooling = nn.AdaptiveAvgPool2d(18)
 
     def _reset_parameters(self):

@@ -1,5 +1,5 @@
 *.out
-*.pth
+experiments/
 datasets/
 logs/
 

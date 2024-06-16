@@ -12,12 +12,15 @@ import scipy.stats as stats
 from models.ViT_helper import DropPath, to_2tuple, trunc_normal_
 
 class PatchEmbed(nn.Module):
-    """ Image to Patch Embedding
+    """ 
+        Image to Patch Embedding
     """
     def __init__(self, img_size=256, patch_size=8, in_chans=3, embed_dim=512):
         super().__init__()
         img_size = to_2tuple(img_size)
         patch_size = to_2tuple(patch_size)
+
+        # (256 // 8 ) * (256 // 8) = 4096
         num_patches = (img_size[1] // patch_size[1]) * (img_size[0] // patch_size[0])
         self.img_size = img_size
         self.patch_size = patch_size
@@ -32,7 +35,7 @@ class PatchEmbed(nn.Module):
 
         return x
 
-
+# 解码器中 9个填充
 decoder = nn.Sequential(
     nn.ReflectionPad2d((1, 1, 1, 1)),
     nn.Conv2d(512, 256, (3, 3)),
@@ -134,6 +137,7 @@ class MLP(nn.Module):
         for i, layer in enumerate(self.layers):
             x = F.relu(layer(x)) if i < self.num_layers - 1 else layer(x)
         return x
+    
 class StyTrans(nn.Module):
     """ This is the style transform transformer module """
     
@@ -185,6 +189,7 @@ class StyTrans(nn.Module):
         target_mean, target_std = calc_mean_std(target)
         return self.mse_loss(input_mean, target_mean) + \
                self.mse_loss(input_std, target_std)
+    
     def forward(self, samples_c: NestedTensor,samples_s: NestedTensor):
         """ The forward expects a NestedTensor, which consists of:
                - samples.tensor: batched images, of shape [batch_size x 3 x H x W]
@@ -215,18 +220,25 @@ class StyTrans(nn.Module):
         Ics = self.decode(hs)
 
         Ics_feats = self.encode_with_intermediate(Ics)
-        loss_c = self.calc_content_loss(normal(Ics_feats[-1]), normal(content_feats[-1]))+self.calc_content_loss(normal(Ics_feats[-2]), normal(content_feats[-2]))
+
+        # 计算编码后两层的损失
+        loss_c = self.calc_content_loss(normal(Ics_feats[-1]), normal(content_feats[-1]))
+        + self.calc_content_loss(normal(Ics_feats[-2]), normal(content_feats[-2]))
+
         # Style loss
+        # 计算编码的每层损失差距 （感觉这里计算内容 和 风格损失借鉴了Gays的方法）
         loss_s = self.calc_style_loss(Ics_feats[0], style_feats[0])
         for i in range(1, 5):
             loss_s += self.calc_style_loss(Ics_feats[i], style_feats[i])
-            
         
+        # 输入自身图片，得到重建后的图片
         Icc = self.decode(self.transformer(content, mask , content, pos_c, pos_c))
         Iss = self.decode(self.transformer(style, mask , style, pos_s, pos_s))    
 
-        #Identity losses lambda 1    
-        loss_lambda1 = self.calc_content_loss(Icc,content_input)+self.calc_content_loss(Iss,style_input)
+        # Identity losses lambda 1    
+        # 一致性损失 
+        loss_lambda1 = self.calc_content_loss(Icc,content_input)
+        + self.calc_content_loss(Iss,style_input)
         
         #Identity losses lambda 2
         Icc_feats=self.encode_with_intermediate(Icc)
@@ -236,4 +248,7 @@ class StyTrans(nn.Module):
             loss_lambda2 += self.calc_content_loss(Icc_feats[i], content_feats[i])+self.calc_content_loss(Iss_feats[i], style_feats[i])
         # Please select and comment out one of the following two sentences
         return Ics,  loss_c, loss_s, loss_lambda1, loss_lambda2   #train
+    
+        # 需要颜色约束损失
+
         # return Ics    #test 
