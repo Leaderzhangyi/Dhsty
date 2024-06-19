@@ -196,20 +196,34 @@ class StyTrans(nn.Module):
                - samples.mask: a binary mask of shape [batch_size x H x W], containing 1 on padded pixels
 
         """
+        # batch_size,channel,height,width
         content_input = samples_c
         style_input = samples_s
+        # [4 3 256 256]
+        # print("content_input_1:",content_input.size())
         if isinstance(samples_c, (list, torch.Tensor)):
             samples_c = nested_tensor_from_tensor_list(samples_c)   # support different-sized images padding is used for mask [tensor, mask] 
         if isinstance(samples_s, (list, torch.Tensor)):
             samples_s = nested_tensor_from_tensor_list(samples_s) 
+
+        # [4 3 256 256]
+        # print("samples_c_2:",samples_c.tensors.size())
         
         # ### features used to calcate loss 
         content_feats = self.encode_with_intermediate(samples_c.tensors)
         style_feats = self.encode_with_intermediate(samples_s.tensors)
+    
+
+        # print("content_input_3:",content_feats.size())
+
 
         ### Linear projection
         style = self.embedding(samples_s.tensors)
         content = self.embedding(samples_c.tensors)
+
+        # [4,512,32,32] b c h w
+        # print("content_input_emedding_4:",content.size())
+
         
         # postional embedding is calculated in transformer.py
         pos_s = None
@@ -247,8 +261,16 @@ class StyTrans(nn.Module):
         for i in range(1, 5):
             loss_lambda2 += self.calc_content_loss(Icc_feats[i], content_feats[i])+self.calc_content_loss(Iss_feats[i], style_feats[i])
         # Please select and comment out one of the following two sentences
+
+
+        # 需要颜色约束损失
+
+
+
+
+
+
         return Ics,  loss_c, loss_s, loss_lambda1, loss_lambda2   #train
     
-        # 需要颜色约束损失
 
         # return Ics    #test 

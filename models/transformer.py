@@ -6,6 +6,7 @@ import torch.nn.functional as F
 from torch import nn, Tensor
 from function import normal,normal_style
 import numpy as np
+from einops import rearrange, repeat
 import os
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 # os.environ["CUDA_VISIBLE_DEVICES"] = "2, 3"
@@ -27,8 +28,7 @@ class Transformer(nn.Module):
         decoder_layer = TransformerDecoderLayer(d_model, nhead, dim_feedforward,
                                                 dropout, activation, normalize_before)
         decoder_norm = nn.LayerNorm(d_model)
-        self.decoder = TransformerDecoder(decoder_layer, num_decoder_layers, decoder_norm,
-                                          return_intermediate=return_intermediate_dec)
+        self.decoder = TransformerDecoder(decoder_layer, num_decoder_layers, decoder_norm,return_intermediate=return_intermediate_dec)
 
         self._reset_parameters()
 
@@ -45,13 +45,31 @@ class Transformer(nn.Module):
                 nn.init.xavier_uniform_(p)
 
     def forward(self, style, mask , content, pos_embed_c, pos_embed_s):
+        """
+        pos_s = None
+        pos_c = None
+        mask = None
+        style  [4,512,32,32] b c h w
+        content [4,512,32,32] b c h w
+        """
 
         # content-aware positional embedding
-        content_pool = self.averagepooling(content)       
+        # [4,512,18,18]
+        content_pool = self.averagepooling(content)  
+        # print("content_pool:",content_pool.size())
+        # pos_c is P_L     
+        # [4,512,18,18]
         pos_c = self.new_ps(content_pool)
-        pos_embed_c = F.interpolate(pos_c, mode='bilinear',size= style.shape[-2:])
+        # print("pos_c:",pos_c.size())
+
+        # [4, 512, 32, 32]
+        pos_embed_c = F.interpolate(pos_c, mode='bilinear',size = style.shape[-2:]) 
+        # style.shape[-2:] = (32,32)
+        # print("pos_embed_c:",pos_embed_c.size())
 
         ###flatten NxCxHxW to HWxNxC     
+        # [4, 512, 32, 32] -> [4,512,32*32] -> [32*32, 4, 512]
+        # [1024, 4, 512] h*w,b,c 
         style = style.flatten(2).permute(2, 0, 1)
         if pos_embed_s is not None:
             pos_embed_s = pos_embed_s.flatten(2).permute(2, 0, 1)
@@ -88,14 +106,12 @@ class TransformerEncoder(nn.Module):
                 src_key_padding_mask: Optional[Tensor] = None,
                 pos: Optional[Tensor] = None):
         output = src
-        
         for layer in self.layers:
             output = layer(output, src_mask=mask,
                            src_key_padding_mask=src_key_padding_mask, pos=pos)
 
         if self.norm is not None:
             output = self.norm(output)
-
         return output
 
 
@@ -143,7 +159,7 @@ class TransformerDecoder(nn.Module):
 class TransformerEncoderLayer(nn.Module):
 
     def __init__(self, d_model, nhead, dim_feedforward=2048, dropout=0.1,
-                 activation="relu", normalize_before=False):
+                 activation="gelu", normalize_before=False):
         super().__init__()
         self.self_attn = nn.MultiheadAttention(d_model, nhead, dropout=dropout)
         # Implementation of Feedforward model
@@ -156,6 +172,10 @@ class TransformerEncoderLayer(nn.Module):
         self.dropout1 = nn.Dropout(dropout)
         self.dropout2 = nn.Dropout(dropout)
 
+
+        self.dwconv = nn.Conv2d(dim_feedforward,dim_feedforward,groups=dim_feedforward,kernel_size=3,stride=1,padding=1)
+
+
         self.activation = _get_activation_fn(activation)
         self.normalize_before = normalize_before
 
@@ -167,16 +187,45 @@ class TransformerEncoderLayer(nn.Module):
                      src_mask: Optional[Tensor] = None,
                      src_key_padding_mask: Optional[Tensor] = None,
                      pos: Optional[Tensor] = None):
+           
+        # [1024, 4, 512] h*w,b,c
+        # print("transformer encoder layer forward_post:",src.size())
         q = k = self.with_pos_embed(src, pos)
-        # q = k = src
+        # q = k = src 内容风格各进入各自的transfomer
         # print(q.size(),k.size(),src.size())
         src2 = self.self_attn(q, k, value=src, attn_mask=src_mask,
                               key_padding_mask=src_key_padding_mask)[0]
+
+
+        # print("src2:",src2.size())
         src = src + self.dropout1(src2)
         src = self.norm1(src)
-        src2 = self.linear2(self.dropout(self.activation(self.linear1(src))))
-        src = src + self.dropout2(src2)
+        # print("src:",src.size())    
+
+        x = self.linear1(src)
+        x = self.activation(x)
+        x =self.dropout(x)
+        # [1024,4,2048] -> [2048,4,1024] -> [1024,4,2048]
+        x = x.permute(2,1,0)
+        x = self.dwconv(x)
+        x = self.activation(x)  
+        x = x.permute(2,1,0)
+        x = self.linear2(x)
+        x = self.activation(x)
+        x = self.dropout(x)
+        # print("x:",x.size())
+
+
+        src = src + self.dropout2(x)
         src = self.norm2(src)
+
+
+
+        # src2 = self.linear2(self.dropout(self.activation(self.linear1(src))))
+        # src = src + self.dropout2(src2)
+
+        # src = self.norm2(src)
+        # print("src_final:",src.size())
         return src
 
     def forward_pre(self, src,

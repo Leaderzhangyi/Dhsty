@@ -20,7 +20,7 @@ from torchvision.utils import save_image
 def train_transform():
     transform_list = [
         transforms.Resize(size=(512, 512)),
-        transforms.RandomCrop(256),
+        transforms.RandomCrop(256), 
         transforms.ToTensor()
     ]
     return transforms.Compose(transform_list)
