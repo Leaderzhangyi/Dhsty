@@ -175,7 +175,7 @@ for i in progress_bar:
     style_images = next(style_iter).to(device)  
 
     # 
-    out, loss_c, loss_s,l_identity1, l_identity2 = network(content_images, style_images)
+    out, loss_c, loss_s,l_identity1, l_identity2,LHSV = network(content_images, style_images)
 
     if i % 100 == 0:
         output_name = '{:s}/test/{:s}{:s}'.format(
@@ -188,7 +188,7 @@ for i in progress_bar:
         
     loss_c = args.content_weight * loss_c
     loss_s = args.style_weight * loss_s
-    loss = loss_c + loss_s + (l_identity1 * 70) + (l_identity2 * 1) 
+    loss = loss_c + loss_s + (l_identity1 * 70) + (l_identity2 * 1)  + LHSV * 2
     
 
     # print(loss.sum().cpu().detach().numpy(),"-content:",loss_c.sum().cpu().detach().numpy(),"-style:",loss_s.sum().cpu().detach().numpy()

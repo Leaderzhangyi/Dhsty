@@ -10,6 +10,10 @@ from function import normal,normal_style
 from function import calc_mean_std
 import scipy.stats as stats
 from models.ViT_helper import DropPath, to_2tuple, trunc_normal_
+from util.HSV import HSV
+from util.misc import get_edge
+import matplotlib.pyplot as plt 
+
 
 class PatchEmbed(nn.Module):
     """ 
@@ -262,15 +266,41 @@ class StyTrans(nn.Module):
             loss_lambda2 += self.calc_content_loss(Icc_feats[i], content_feats[i])+self.calc_content_loss(Iss_feats[i], style_feats[i])
         # Please select and comment out one of the following two sentences
 
+        # I_s [4,3,256,256]
+        # I_cs [4,3,256,256]
+        edgesList = []
+        img_s = style_input.cpu().permute(0, 2, 3, 1).numpy()  # [4,256,256,3]
+        for i in range(img_s.shape[0]):
+            edgesList.append(get_edge(img_s[i]))
+        Edge = torch.stack(edgesList)
+        # print("Edge:",Edge.size())
 
+        # 显示原始图片和提取的纹理
+        # fig, axes = plt.subplots(4, 2, figsize=(12, 24))
+        # for i in range(4):
+        #     axes[i, 0].imshow(img_s[i])
+        #     axes[i, 0].set_title(f'Original Image {i+1}')
+        #     axes[i, 0].axis('off')
+            
+        #     axes[i, 1].imshow(Edge[i], cmap='gray')
+        #     axes[i, 1].set_title(f'Canny Edges {i+1}')
+        #     axes[i, 1].axis('off')
+        # plt.savefig("./pp.png",dpi = 120)
+
+        # print(f"sinput: {style_input.size()},Ics: {Ics.size()}, Edge: {Edge.size()}")
         # 需要颜色约束损失
+        # 这里主要是 加深迁移图像的颜色 用迁移图 和 风格图做差
+        # H 表示Hue 色调  S Saturation表示饱和度  V Value表示明度
+        HSV_loss_H, HSV_loss_S, HSV_loss_V, HSV_loss = HSV(style_input, Ics, Edge)
+
+
+        #Lambda_HSV: 10
+        #Lambda_LHSV: 1
+        LHSV = 20 * HSV_loss_H + 10 * HSV_loss_S
 
 
 
-
-
-
-        return Ics,  loss_c, loss_s, loss_lambda1, loss_lambda2   #train
+        return Ics,  loss_c, loss_s, loss_lambda1, loss_lambda2, LHSV   #train
     
 
         # return Ics    #test 

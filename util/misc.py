@@ -11,11 +11,13 @@ from collections import defaultdict, deque
 import datetime
 import pickle
 from typing import Optional, List
-
+import torchvision.transforms.functional as F
 import torch
 import torch.distributed as dist
 from torch import Tensor
-
+from skimage.feature import canny
+from skimage.color import rgb2gray
+import numpy as np
 # needed due to empty tensor bug in pytorch and torchvision 0.5
 import torchvision
 # if float(torchvision.__version__[:3]) < 0.7:
@@ -301,6 +303,17 @@ class NestedTensor(object):
 
     def __repr__(self):
         return str(self.tensors)
+
+def get_edge(img):
+    
+    # 先gray
+    img_grap = rgb2gray(img)
+    # 再canny
+    edge = canny(img_grap, sigma=2,mask=None).astype(np.float64)
+    edge_tensor = F.to_tensor(edge).float()
+    # edge_tensor = edge_tensor.permute(1,2,0)
+    return edge_tensor
+
 
 
 def nested_tensor_from_tensor_list(tensor_list: List[Tensor]):

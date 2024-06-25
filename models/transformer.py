@@ -197,35 +197,28 @@ class TransformerEncoderLayer(nn.Module):
                               key_padding_mask=src_key_padding_mask)[0]
 
 
-        # print("src2:",src2.size())
+        # # print("src2:",src2.size())
+        # src = src + self.dropout1(src2)
+        # src = self.norm1(src)
+        # # print("src:",src.size())    
+
+        # x = self.linear1(src)
+        # x = self.activation(x)
+        # x =self.dropout(x)
+        # # [1024,4,2048] -> [2048,4,1024] -> [1024,4,2048]
+        # x = x.permute(2,1,0)
+        # x = self.dwconv(x)
+        # x = self.activation(x)  
+        # x = x.permute(2,1,0)
+        # x = self.linear2(x)
+        # x = self.activation(x)
+        # x = self.dropout(x)
+        # # print("x:",x.size())
         src = src + self.dropout1(src2)
         src = self.norm1(src)
-        # print("src:",src.size())    
-
-        x = self.linear1(src)
-        x = self.activation(x)
-        x =self.dropout(x)
-        # [1024,4,2048] -> [2048,4,1024] -> [1024,4,2048]
-        x = x.permute(2,1,0)
-        x = self.dwconv(x)
-        x = self.activation(x)  
-        x = x.permute(2,1,0)
-        x = self.linear2(x)
-        x = self.activation(x)
-        x = self.dropout(x)
-        # print("x:",x.size())
-
-
-        src = src + self.dropout2(x)
+        src2 = self.linear2(self.dropout(self.activation(self.linear1(src))))
+        src = src + self.dropout2(src2)
         src = self.norm2(src)
-
-
-
-        # src2 = self.linear2(self.dropout(self.activation(self.linear1(src))))
-        # src = src + self.dropout2(src2)
-
-        # src = self.norm2(src)
-        # print("src_final:",src.size())
         return src
 
     def forward_pre(self, src,
