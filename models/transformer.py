@@ -172,8 +172,11 @@ class TransformerEncoderLayer(nn.Module):
         self.dropout1 = nn.Dropout(dropout)
         self.dropout2 = nn.Dropout(dropout)
 
-
+        # 定义空间卷积
         self.dwconv = nn.Conv2d(dim_feedforward,dim_feedforward,groups=dim_feedforward,kernel_size=3,stride=1,padding=1)
+        # self.avgPool = nn.AdaptiveAvgPool2d()
+
+
 
 
         self.activation = _get_activation_fn(activation)
@@ -191,10 +194,8 @@ class TransformerEncoderLayer(nn.Module):
         # [1024, 4, 512] h*w,b,c
         # print("transformer encoder layer forward_post:",src.size())
         q = k = self.with_pos_embed(src, pos)
-        # q = k = src 内容风格各进入各自的transfomer
         # print(q.size(),k.size(),src.size())
-        src2 = self.self_attn(q, k, value=src, attn_mask=src_mask,
-                              key_padding_mask=src_key_padding_mask)[0]
+        
 
 
         # # print("src2:",src2.size())
@@ -214,11 +215,28 @@ class TransformerEncoderLayer(nn.Module):
         # x = self.activation(x)
         # x = self.dropout(x)
         # # print("x:",x.size())
+
+
+        ##### LayerNorm ####
+        # 多头注意力
+        src2 = self.self_attn(q, k, value=src, attn_mask=src_mask,
+                              key_padding_mask=src_key_padding_mask)[0]
+        # Add & Norm 
         src = src + self.dropout1(src2)
         src = self.norm1(src)
+        import ipdb;ipdb.set_trace()
+
+
+
+
+        # FFN
         src2 = self.linear2(self.dropout(self.activation(self.linear1(src))))
+
+        # Add & Norm 
         src = src + self.dropout2(src2)
         src = self.norm2(src)
+        ##### LayerNorm ####
+
         return src
 
     def forward_pre(self, src,
