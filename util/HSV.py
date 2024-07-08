@@ -34,7 +34,7 @@ def BGR2HSV(img, pred_img, edge, batch):
     # pre_img_hsv = np.stack([pre_img_hsv[0],pre_img_hsv[1],pre_img_hsv[2],pre_img_hsv[3],pre_img_hsv[4],pre_img_hsv[5],pre_img_hsv[6],pre_img_hsv[7]],axis=0)
     # edge_mask_list = np.stack([edge_mask_list[0],edge_mask_list[1],edge_mask_list[2],edge_mask_list[3],edge_mask_list[4],edge_mask_list[5],edge_mask_list[6],edge_mask_list[7]],axis=0)
     img_hsv = np.stack([img_hsv[0],img_hsv[1],img_hsv[2],img_hsv[3]],axis=0)
-    pre_img_hsv = np.stack([pre_img_hsv[0],pre_img_hsv[1],pre_img_hsv[2],pre_img_hsv[3]],axis=0)
+    pre_img_hsv = np.stack([pre_img_hsv[0],pre_img_hsv[1],pre_img_hsv[2],pre_img_hsv[3]],axis =0)
     edge_mask_list = np.stack([edge_mask_list[0],edge_mask_list[1],edge_mask_list[2],edge_mask_list[3]],axis=0)
     img_hsv = torch.from_numpy(img_hsv).float()
     pre_img_hsv = torch.from_numpy(pre_img_hsv).float()

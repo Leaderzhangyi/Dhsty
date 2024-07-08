@@ -14,6 +14,26 @@ from util.HSV import HSV
 from util.misc import get_edge
 import matplotlib.pyplot as plt 
 
+class DepthwiseConv(nn.Module):
+    """
+    深度可分离卷积层
+    """
+    def __init__(self, in_channels, kernel_size, stride=1, padding=1, bias=True):
+        super(DepthwiseConv, self).__init__()
+        self.layers = nn.Sequential(
+            nn.Conv2d(in_channels=in_channels, out_channels=in_channels, kernel_size=kernel_size, stride=stride,
+                      padding=padding, groups=in_channels, bias=bias),
+            nn.BatchNorm2d(num_features=in_channels),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=in_channels, out_channels=in_channels, kernel_size=1, bias=bias,padding=0),
+            nn.BatchNorm2d(num_features=in_channels),
+            nn.ReLU()
+        )
+
+    def forward(self, inputs):
+        outputs = self.layers(inputs)
+        return outputs
+    
 
 class PatchEmbed(nn.Module):
     """ 
@@ -23,20 +43,64 @@ class PatchEmbed(nn.Module):
         super().__init__()
         img_size = to_2tuple(img_size)
         patch_size = to_2tuple(patch_size)
-
-        # (256 // 8 ) * (256 // 8) = 4096
-        num_patches = (img_size[1] // patch_size[1]) * (img_size[0] // patch_size[0])
-        self.img_size = img_size
         self.patch_size = patch_size
-        self.num_patches = num_patches
-        
-        self.proj = nn.Conv2d(in_chans, embed_dim, kernel_size=patch_size, stride=patch_size)
-        self.up1 = nn.Upsample(scale_factor=2, mode='nearest')
+
+
+        # 保证起始与最终，中间层看自己造化
+        # [4,3,256,256] - > [4,512,32,32]
+        # self.proj = nn.Conv2d(in_chans, embed_dim, kernel_size=patch_size, stride=patch_size)
+        # self.up1 = nn.Upsample(scale_factor=2, mode='nearest')
+
+        # [4,512,64,64]
+        self.conv1 = nn.Conv2d(in_chans, embed_dim, kernel_size=patch_size, stride=patch_size)
+
+
+        part_size = embed_dim // 2
+
+        print(f"part_size = {part_size}")
+        self.dw1 = DepthwiseConv(in_channels = part_size, kernel_size=3, padding=1)
+        self.dw2 = DepthwiseConv(in_channels = part_size, kernel_size=5, padding=2)
+        self.c1 = nn.Conv2d(1024, 512, kernel_size=1)
+        self.c2 = nn.Conv2d(1024, 512, kernel_size=1)
+
+        self.avg1 = nn.MaxPool2d(kernel_size=3,stride=1, padding=1) 
+        self.avg2 = nn.MaxPool2d(kernel_size=5,stride=1, padding=2)
+
+
+        # self.layer1 = nn.Sequential (
+        #     nn.AdaptiveMaxPool2d((32, 32)),
+        #     nn.Conv2d(part_size, part_size, kernel_size=1),  # 使用1x1卷积替代线性层
+        #     nn.GELU()
+
+        # )
+        # self.layer2 = nn.Sequential(
+        #     nn.AdaptiveAvgPool2d((32, 32)),
+        #     nn.Conv2d(part_size, part_size, kernel_size=1),  # 使用1x1卷积替代线性层
+        #     nn.GELU()
+        # )
+
+
+
+
 
     def forward(self, x):
         B, C, H, W = x.shape
-        x = self.proj(x)
+        x = self.conv1(x) # [4,3,256,256]
+        # import ipdb; ipdb.set_trace()
+        # xold_1 = x 
+        # x1, x2 = torch.chunk(x, 2, dim=1)  # [4,512,64,64] -> 2 * [4,256,64,64]
+        # x1 = self.dw1(x1)
+        # x2 = self.dw2(x2)
 
+        # x = torch.cat([x1,x2, xold_1],dim=1)  # [4,1024,32,32]
+        # x = self.c1(x)
+        # x_old2 = x
+        # x1, x2 = torch.chunk(x, 2, dim=1)
+        # x1 = self.avg1(x1)
+        # x2 = self.avg2(x2)
+        # # import pdb; pdb.set_trace()
+        # x = torch.cat([x1,x2, x_old2],dim=1)
+        # x = self.c2(x)
         return x
 
 # 解码器中 9个填充
@@ -234,14 +298,21 @@ class StyTrans(nn.Module):
         pos_c = None
 
         mask = None
-        hs = self.transformer(style, mask , content, pos_c, pos_s)   
+        hs = self.transformer(style, mask , content, pos_c, pos_s)  
+        # torch.Size([4, 512, 32, 32])
+
+
+
+
         Ics = self.decode(hs)
 
         Ics_feats = self.encode_with_intermediate(Ics)
 
         # 计算编码后两层的损失
+     
         loss_c = self.calc_content_loss(normal(Ics_feats[-1]), normal(content_feats[-1]))
         + self.calc_content_loss(normal(Ics_feats[-2]), normal(content_feats[-2]))
+
 
         # Style loss
         # 计算编码的每层损失差距 （感觉这里计算内容 和 风格损失借鉴了Gays的方法）
@@ -258,7 +329,7 @@ class StyTrans(nn.Module):
         loss_lambda1 = self.calc_content_loss(Icc,content_input)
         + self.calc_content_loss(Iss,style_input)
         
-        #Identity losses lambda 2
+        # Identity losses lambda 2
         Icc_feats=self.encode_with_intermediate(Icc)
         Iss_feats=self.encode_with_intermediate(Iss)
         loss_lambda2 = self.calc_content_loss(Icc_feats[0], content_feats[0])+self.calc_content_loss(Iss_feats[0], style_feats[0])
@@ -291,6 +362,7 @@ class StyTrans(nn.Module):
         # 需要颜色约束损失
         # 这里主要是 加深迁移图像的颜色 用迁移图 和 风格图做差
         # H 表示Hue 色调  S Saturation表示饱和度  V Value表示明度
+       
         HSV_loss_H, HSV_loss_S, HSV_loss_V, HSV_loss = HSV(style_input, Ics, Edge)
 
 
@@ -301,6 +373,8 @@ class StyTrans(nn.Module):
 
 
         return Ics,  loss_c, loss_s, loss_lambda1, loss_lambda2, LHSV   #train
+        # return Ics,  LHSV   #train
+
     
 
         # return Ics    #test 

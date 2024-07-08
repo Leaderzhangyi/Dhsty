@@ -79,11 +79,16 @@ class Transformer(nn.Module):
             pos_embed_c = pos_embed_c.flatten(2).permute(2, 0, 1)
      
         
+        # input:  [1024, 4, 512]   h*w,b,c   256的图片
+        # ouptput: [1024, 4, 512]  h*w,b,c   256的图片
         style = self.encoder_s(style, src_key_padding_mask=mask, pos=pos_embed_s)
         content = self.encoder_c(content, src_key_padding_mask=mask, pos=pos_embed_c)
+
+
+        # output: # [1024, 4, 512]   h*w,b,c   256的图片
         hs = self.decoder(content, style, memory_key_padding_mask=mask,
                           pos=pos_embed_s, query_pos=pos_embed_c)[0]
-        
+        import ipdb; ipdb.set_trace()
         ### HWxNxC to NxCxHxW to
         N, B, C= hs.shape          
         H = int(np.sqrt(N))
@@ -96,6 +101,11 @@ class Transformer(nn.Module):
 class TransformerEncoder(nn.Module):
 
     def __init__(self, encoder_layer, num_layers, norm=None):
+        """
+            encoder_layer: TransformerEncoderLayer
+            num_layers: 3
+
+        """
         super().__init__()
         self.layers = _get_clones(encoder_layer, num_layers)
         self.num_layers = num_layers
@@ -105,6 +115,7 @@ class TransformerEncoder(nn.Module):
                 mask: Optional[Tensor] = None,
                 src_key_padding_mask: Optional[Tensor] = None,
                 pos: Optional[Tensor] = None):
+        # import ipdb;ipdb.set_trace()
         output = src
         for layer in self.layers:
             output = layer(output, src_mask=mask,
@@ -112,6 +123,8 @@ class TransformerEncoder(nn.Module):
 
         if self.norm is not None:
             output = self.norm(output)
+
+        # torch.Size([1024, 4, 512])
         return output
 
 
@@ -224,9 +237,6 @@ class TransformerEncoderLayer(nn.Module):
         # Add & Norm 
         src = src + self.dropout1(src2)
         src = self.norm1(src)
-        import ipdb;ipdb.set_trace()
-
-
 
 
         # FFN

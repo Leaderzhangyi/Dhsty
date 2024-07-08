@@ -14,7 +14,7 @@ import models.StyTR  as StyTR
 from sampler import InfiniteSamplerWrapper
 from torchvision.utils import save_image
 
-
+from torchsummary import summary
 
 # 图像预处理
 def train_transform():
@@ -95,7 +95,7 @@ args = parser.parse_args()
 # cuda是否可用
 USE_CUDA = torch.cuda.is_available()
 device = torch.device("cuda:0" if USE_CUDA else "cpu")
-print(USE_CUDA)
+print("device: ",device)
 # if USE_CUDA == True:
 #     print(torch.cuda.device_count())
 #     for i in range(torch.cuda.device_count()):
@@ -114,6 +114,8 @@ if not os.path.exists(args.log_dir):
     os.mkdir(args.log_dir)
 writer = SummaryWriter(log_dir=args.log_dir)
 
+
+
 # 加载vgg
 vgg = StyTR.vgg
 vgg.load_state_dict(torch.load(args.vgg))
@@ -121,15 +123,21 @@ vgg = nn.Sequential(*list(vgg.children())[:44])
 
 # 加载transformer
 decoder = StyTR.decoder
-embedding = StyTR.PatchEmbed()
+embedding = StyTR.PatchEmbed().to(device)
 Trans = transformer.Transformer()
-
 # 各个模块拼接 组成整体网络
 with torch.no_grad():
     network = StyTR.StyTrans(vgg,decoder,embedding, Trans,args)
 network.train()
 
 network.to(device)
+
+# cc = torch.rand(4, 3, 256, 256).to(device)
+# ss = torch.rand(4, 3, 256, 256).to(device)
+# summary(network,cc,ss)
+
+
+
 # network = nn.DataParallel(network, device_ids=[0])
 content_tf = train_transform()
 style_tf = train_transform()
@@ -173,6 +181,7 @@ for i in progress_bar:
     # 从迭代器中加载内容和风格图像
     content_images = next(content_iter).to(device)
     style_images = next(style_iter).to(device)  
+    print(content_images.shape,style_images.shape)
 
     # 
     out, loss_c, loss_s,l_identity1, l_identity2,LHSV = network(content_images, style_images)
