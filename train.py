@@ -9,18 +9,22 @@ from tensorboardX import SummaryWriter
 from torchvision import transforms
 from tqdm.auto import tqdm
 from pathlib import Path
+from models.sampler import InfiniteSamplerWrapper
+from models.VitaminEncoder import *
 import models.transformer as transformer
+import models.transDecoder as transDecoder
 import models.StyTR  as StyTR 
-from sampler import InfiniteSamplerWrapper
+import timm
 from torchvision.utils import save_image
 
 from torchsummary import summary
+
 
 # 图像预处理
 def train_transform():
     transform_list = [
         transforms.Resize(size=(512, 512)),
-        transforms.RandomCrop(256), 
+        transforms.RandomCrop(224), 
         transforms.ToTensor()
     ]
     return transforms.Compose(transform_list)
@@ -125,9 +129,14 @@ vgg = nn.Sequential(*list(vgg.children())[:44])
 decoder = StyTR.decoder
 embedding = StyTR.PatchEmbed().to(device)
 Trans = transformer.Transformer()
+
+# 加载Vitamin的Encoder
+vitaminEncoder = timm.create_model('vitamin_small',pretrained=False).to(device)
+
+
 # 各个模块拼接 组成整体网络
 with torch.no_grad():
-    network = StyTR.StyTrans(vgg,decoder,embedding, Trans,args)
+    network = StyTR.StyTrans(vgg,decoder,embedding, Trans,vitaminEncoder,args)
 network.train()
 
 network.to(device)
@@ -160,7 +169,8 @@ style_iter = iter(data.DataLoader(
 
 # 定义优化器
 optimizer = torch.optim.Adam([ 
-                              {'params': network.transformer.parameters()},
+                            #   {'params': network.transformer.parameters()},
+                            {'params': network.vitaEncoder.parameters()},
                               {'params': network.decode.parameters()},
                               {'params': network.embedding.parameters()},        
                               ], lr=args.lr)

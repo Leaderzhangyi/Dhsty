@@ -18,7 +18,6 @@ class Transformer(nn.Module):
                  activation="relu", normalize_before=False,
                  return_intermediate_dec=False):
         super().__init__()
-
         encoder_layer = TransformerEncoderLayer(d_model, nhead, dim_feedforward,
                                                 dropout, activation, normalize_before)
         encoder_norm = nn.LayerNorm(d_model) if normalize_before else None
@@ -83,6 +82,8 @@ class Transformer(nn.Module):
         # ouptput: [1024, 4, 512]  h*w,b,c   256的图片
         style = self.encoder_s(style, src_key_padding_mask=mask, pos=pos_embed_s)
         content = self.encoder_c(content, src_key_padding_mask=mask, pos=pos_embed_c)
+
+        
 
 
         # output: # [1024, 4, 512]   h*w,b,c   256的图片
@@ -208,6 +209,8 @@ class TransformerEncoderLayer(nn.Module):
         # print("transformer encoder layer forward_post:",src.size())
         q = k = self.with_pos_embed(src, pos)
         # print(q.size(),k.size(),src.size())
+        import ipdb;ipdb.set_trace()
+        
         
 
 

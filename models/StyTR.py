@@ -14,6 +14,9 @@ from util.HSV import HSV
 from util.misc import get_edge
 import matplotlib.pyplot as plt 
 
+from models.transDecoder import TransformerDecoder,TransformerDecoderLayer
+
+
 class DepthwiseConv(nn.Module):
     """
     深度可分离卷积层
@@ -32,8 +35,83 @@ class DepthwiseConv(nn.Module):
 
     def forward(self, inputs):
         outputs = self.layers(inputs)
+        outputs.flat
         return outputs
+
+class CALayer(nn.Module):
+    def __init__(self, channel, reduction=16):
+        super(CALayer, self).__init__()
+        # global average pooling: feature --> point
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+
+
+        # feature channel downscale and upscale --> channel weight
+        self.conv_du = nn.Sequential(
+            nn.Conv2d(channel, channel // reduction, 1, padding=0, bias=True),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(channel // reduction, channel, 1, padding=0, bias=True),
+            nn.Sigmoid()
+        )
+    def forward(self, x):
+        y = self.avg_pool(x)
+        y = self.conv_du(y)
+        return x * y
+
+class mixblock(nn.Module):
+    def __init__(self, n_feats):
+        super(mixblock, self).__init__()
+        self.conv1=nn.Sequential(nn.Conv2d(n_feats,n_feats,3,1,1,bias=False),nn.GELU())
+        self.conv2=nn.Sequential(nn.Conv2d(n_feats,n_feats,3,1,1,bias=False),nn.GELU(),nn.Conv2d(n_feats,n_feats,3,1,1,bias=False),nn.GELU(),nn.Conv2d(n_feats,n_feats,3,1,1,bias=False),nn.GELU())
+        self.alpha=nn.Parameter(torch.ones(1))
+        self.beta=nn.Parameter(torch.ones(1))
+
+    def forward(self,x):
+        return self.alpha*self.conv1(x)+self.beta*self.conv2(x)
     
+class Downupblock(nn.Module):
+    def __init__(self, n_feats):
+        super(Downupblock, self).__init__()
+        self.encoder = mixblock(n_feats)
+        self.decoder_high = mixblock(n_feats)  # nn.Sequential(one_module(n_feats),
+
+
+        self.decoder_low = nn.Sequential(mixblock(n_feats), mixblock(n_feats), mixblock(n_feats))
+        self.alise = nn.Conv2d(n_feats,n_feats,1,1,0,bias=False)  # one_module(n_feats)
+        self.alise2 = nn.Conv2d(n_feats*2,n_feats,3,1,1,bias=False)  # one_module(n_feats)
+        self.down = nn.AvgPool2d(kernel_size=2)
+        self.att = CALayer(n_feats)
+        self.raw_alpha=nn.Parameter(torch.ones(1))
+
+        self.raw_alpha.data.fill_(0)
+        # self.ega = selfAttention(n_feats, n_feats)
+
+    def forward(self, x,raw):
+        x1 = self.encoder(x)
+        x2 = self.down(x1)
+        high = x1 - F.interpolate(x2, size=x.size()[-2:], mode='bilinear', align_corners=True)
+
+        high = high + self.ega(high,high) * self.raw_alpha
+        x2=self.decoder_low(x2)
+        x3 = x2
+        # x3 = self.decoder_low(x2)
+        high1 = self.decoder_high(high)
+        x4 = F.interpolate(x3, size=x.size()[-2:], mode='bilinear', align_corners=True)
+        return self.alise(self.att(self.alise2(torch.cat([x4, high1], dim=1)))) + x
+    
+class SeparateLowHigh(nn.Module):
+    def __init__(self, n_feats):
+        super(SeparateLowHigh, self).__init__()
+        self.avgpool = nn.AvgPool2d(kernel_size=2)
+        
+
+
+    def forward(self, x):
+        x1 = self.avgpool(x)
+        x2 = x - x1
+        return x1, x2
+
+
+
 
 class PatchEmbed(nn.Module):
     """ 
@@ -44,14 +122,14 @@ class PatchEmbed(nn.Module):
         img_size = to_2tuple(img_size)
         patch_size = to_2tuple(patch_size)
         self.patch_size = patch_size
+        self.in_chans = in_chans
 
 
         # 保证起始与最终，中间层看自己造化
         # [4,3,256,256] - > [4,512,32,32]
         # self.proj = nn.Conv2d(in_chans, embed_dim, kernel_size=patch_size, stride=patch_size)
         # self.up1 = nn.Upsample(scale_factor=2, mode='nearest')
-
-        # [4,512,64,64]
+        
         self.conv1 = nn.Conv2d(in_chans, embed_dim, kernel_size=patch_size, stride=patch_size)
 
 
@@ -62,45 +140,15 @@ class PatchEmbed(nn.Module):
         self.dw2 = DepthwiseConv(in_channels = part_size, kernel_size=5, padding=2)
         self.c1 = nn.Conv2d(1024, 512, kernel_size=1)
         self.c2 = nn.Conv2d(1024, 512, kernel_size=1)
-
         self.avg1 = nn.MaxPool2d(kernel_size=3,stride=1, padding=1) 
         self.avg2 = nn.MaxPool2d(kernel_size=5,stride=1, padding=2)
-
-
-        # self.layer1 = nn.Sequential (
-        #     nn.AdaptiveMaxPool2d((32, 32)),
-        #     nn.Conv2d(part_size, part_size, kernel_size=1),  # 使用1x1卷积替代线性层
-        #     nn.GELU()
-
-        # )
-        # self.layer2 = nn.Sequential(
-        #     nn.AdaptiveAvgPool2d((32, 32)),
-        #     nn.Conv2d(part_size, part_size, kernel_size=1),  # 使用1x1卷积替代线性层
-        #     nn.GELU()
-        # )
-
-
-
-
+        
 
     def forward(self, x):
         B, C, H, W = x.shape
-        x = self.conv1(x) # [4,3,256,256]
-        # import ipdb; ipdb.set_trace()
-        # xold_1 = x 
-        # x1, x2 = torch.chunk(x, 2, dim=1)  # [4,512,64,64] -> 2 * [4,256,64,64]
-        # x1 = self.dw1(x1)
-        # x2 = self.dw2(x2)
-
-        # x = torch.cat([x1,x2, xold_1],dim=1)  # [4,1024,32,32]
-        # x = self.c1(x)
-        # x_old2 = x
-        # x1, x2 = torch.chunk(x, 2, dim=1)
-        # x1 = self.avg1(x1)
-        # x2 = self.avg2(x2)
-        # # import pdb; pdb.set_trace()
-        # x = torch.cat([x1,x2, x_old2],dim=1)
-        # x = self.c2(x)
+        assert C == self.in_chans, f"Input channel ({C}) doesn't match model ({self.in_chans})"
+        x = self.conv1(x) # [4,3,256,256] -> [4,512,32,32]
+       
         return x
 
 # 解码器中 9个填充
@@ -209,7 +257,7 @@ class MLP(nn.Module):
 class StyTrans(nn.Module):
     """ This is the style transform transformer module """
     
-    def __init__(self,encoder,decoder,PatchEmbed, transformer,args):
+    def __init__(self,encoder,decoder,PatchEmbed, transformer,vitaminEncoder,args):
         """
             encoder: vgg
             decoder: StyTR.decoder
@@ -225,7 +273,12 @@ class StyTrans(nn.Module):
         self.enc_3 = nn.Sequential(*enc_layers[11:18])  # relu2_1 -> relu3_1
         self.enc_4 = nn.Sequential(*enc_layers[18:31])  # relu3_1 -> relu4_1
         self.enc_5 = nn.Sequential(*enc_layers[31:44])  # relu4_1 -> relu5_1
-        
+
+
+        decoder_norm = nn.LayerNorm(384)
+        decoder_layer = TransformerDecoderLayer(d_model = 384, nhead = 8, dim_feedforward = 2048, dropout = 0.1, activation = "relu", normalize_before = False)
+        self.TransDecoder = TransformerDecoder(decoder_layer = decoder_layer,num_layers=3,norm = decoder_norm,return_intermediate = False)
+
         # 不需要梯度
         for name in ['enc_1', 'enc_2', 'enc_3', 'enc_4', 'enc_5']:
             for param in getattr(self, name).parameters():
@@ -233,10 +286,11 @@ class StyTrans(nn.Module):
 
         # mse_loss 
         self.mse_loss = nn.MSELoss()
-        self.transformer = transformer
+        self.transformerDecoder = transformer
         hidden_dim = transformer.d_model       
         self.decode = decoder
         self.embedding = PatchEmbed
+        self.vitaEncoder = vitaminEncoder
 
     def encode_with_intermediate(self, input):
         results = [input]
@@ -284,24 +338,41 @@ class StyTrans(nn.Module):
 
         # print("content_input_3:",content_feats.size())
 
+        style = self.vitaEncoder.forward_features(samples_s.tensors)
+        content = self.vitaEncoder.forward_features(samples_c.tensors)
+        # torch.Size([4, 196, 384])
+         # input:  [1024, 4, 512]   h*w,b,c   256的图片
+        # ouptput: [1024, 4, 512]  h*w,b,c   256的图片
 
-        ### Linear projection
-        style = self.embedding(samples_s.tensors)
-        content = self.embedding(samples_c.tensors)
+        # torch.Size([4, 196, 384])  - > [196, 4, 384]
 
-        # [4,512,32,32] b c h w
-        # print("content_input_emedding_4:",content.size())
+        style = style.permute(1, 0, 2)
+        content = content.permute(1, 0, 2)
+
+        # 计算hs？ 解码hs 得到Ics
+        hs = self.TransDecoder(content,style,None,None,None)[0]
+        N,B,C = hs.shape
+        H = int(np.sqrt(N))
+        hs = hs.permute(1, 2, 0).view(B,C,-1,H)
+        import ipdb; ipdb.set_trace()
+
+
+
+        # ### Linear projection
+        # style = self.embedding(samples_s.tensors)
+        # content = self.embedding(samples_c.tensors)
+
+        # # [4,512,32,32] b c h w 
+        # # print("content_input_emedding_4:",content.size())
 
         
-        # postional embedding is calculated in transformer.py
+        # # postional embedding is calculated in transformer.py
         pos_s = None
         pos_c = None
 
         mask = None
-        hs = self.transformer(style, mask , content, pos_c, pos_s)  
-        # torch.Size([4, 512, 32, 32])
-
-
+        # hs = self.transformer(style, mask , content, pos_c, pos_s)  
+        # # torch.Size([4, 512, 32, 32])
 
 
         Ics = self.decode(hs)
