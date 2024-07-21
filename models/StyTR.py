@@ -13,7 +13,7 @@ from models.ViT_helper import DropPath, to_2tuple, trunc_normal_
 from util.HSV import HSV
 from util.misc import get_edge
 import matplotlib.pyplot as plt 
-
+from torchvision.utils import save_image
 class DepthwiseConv(nn.Module):
     """
     深度可分离卷积层
@@ -301,10 +301,11 @@ class StyTrans(nn.Module):
         hs = self.transformer(style, mask , content, pos_c, pos_s)  
         # torch.Size([4, 512, 32, 32])
 
-
-
-
         Ics = self.decode(hs)
+
+        for i in range(Ics.shape[0]):
+            save_image(Ics, f"./imgs/Ics_{i}.png")
+
 
         Ics_feats = self.encode_with_intermediate(Ics)
 

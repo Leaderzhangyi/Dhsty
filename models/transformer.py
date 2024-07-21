@@ -88,7 +88,6 @@ class Transformer(nn.Module):
         # output: # [1024, 4, 512]   h*w,b,c   256的图片
         hs = self.decoder(content, style, memory_key_padding_mask=mask,
                           pos=pos_embed_s, query_pos=pos_embed_c)[0]
-        import ipdb; ipdb.set_trace()
         ### HWxNxC to NxCxHxW to
         N, B, C= hs.shape          
         H = int(np.sqrt(N))

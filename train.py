@@ -181,7 +181,7 @@ for i in progress_bar:
     # 从迭代器中加载内容和风格图像
     content_images = next(content_iter).to(device)
     style_images = next(style_iter).to(device)  
-    print(content_images.shape,style_images.shape)
+    # print(content_images.shape,style_images.shape)
 
     # 
     out, loss_c, loss_s,l_identity1, l_identity2,LHSV = network(content_images, style_images)
@@ -199,10 +199,16 @@ for i in progress_bar:
     loss_s = args.style_weight * loss_s
     loss = loss_c + loss_s + (l_identity1 * 70) + (l_identity2 * 1)  + LHSV * 2
     
+    # 打印loss
+    # print('loss_c: %s' % str(loss_c.sum().item()))
+    # print('loss_s: %s' % str(loss_s.sum().item()))
+    # print('loss_identity1: %s' % str(l_identity1.sum().item()))
+    # print('loss_identity2: %s' % str(l_identity2.sum().item()))
+    # print('loss_LHSV: %s' % str(LHSV.sum().item()))
+    # print('total_loss: %s' % str(loss.sum().item()))
+    
 
-    # print(loss.sum().cpu().detach().numpy(),"-content:",loss_c.sum().cpu().detach().numpy(),"-style:",loss_s.sum().cpu().detach().numpy()
-    #           ,"-l1:",l_identity1.sum().cpu().detach().numpy(),"-l2:",l_identity2.sum().cpu().detach().numpy()
-    #           )
+
     progress_bar.set_postfix({'loss': loss.sum().cpu().detach().numpy()})
        
     optimizer.zero_grad()
