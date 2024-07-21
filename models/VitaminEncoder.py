@@ -19,7 +19,7 @@ from timm.layers.norm_act import _create_act
 
 from timm.models._manipulate import named_apply, checkpoint_seq
 from timm.models._builder import build_model_with_cfg
-from timm.models.vision_transformer import VisionTransformer, checkpoint_filter_fn,vit_base_patch16_224
+from timm.models.vision_transformer import VisionTransformer, checkpoint_filter_fn
 from timm.models.vision_transformer_hybrid import HybridEmbed
 import warnings
 warnings.filterwarnings("ignore")
@@ -97,6 +97,7 @@ class Stem(nn.Module):
         named_apply(_init_conv, self)
 
     def forward(self, x):
+        
         if self.grad_checkpointing:
             x = checkpoint(self.conv1, x)
             x = self.norm1(x)
@@ -105,7 +106,6 @@ class Stem(nn.Module):
             x = self.conv1(x)
             x = self.norm1(x)
             x = self.conv2(x)
-
         return x
 
 class Downsample2d(nn.Module):
@@ -128,6 +128,7 @@ class Downsample2d(nn.Module):
     def forward(self, x):
         x = self.pool(x)  # spatial downsample
         x = self.expand(x)  # expand chs
+        # print(x.shape)
         return x
 
 
@@ -137,7 +138,8 @@ class StridedConv(nn.Module):
     def __init__(
             self, 
             kernel_size=3, 
-            stride=2, 
+            # stride=2, 
+            stride=1, 
             padding=1,
             in_chans=3, 
             embed_dim=768, 
@@ -150,8 +152,11 @@ class StridedConv(nn.Module):
         self.norm = norm_layer(in_chans) # affine over C
 
     def forward(self, x):
+        # print("StridedConv -> ",x.shape)
         x = self.norm(x) 
         x = self.proj(x)
+        # print("After StridedConv -> ",x.shape)
+
         return x
 
 
@@ -213,7 +218,7 @@ class MbConvLNBlock(nn.Module):
         # 1x1 linear projection to output width
         x = self.conv3_1x1(x)
         x = self.drop_path(x) + shortcut
-
+        # print("------->",x.shape)
         return x
 
 
@@ -249,12 +254,13 @@ class MbConvStages(nn.Module):
 
         self.stages = nn.ModuleList(stages)
         self.pool = StridedConv(
-                        stride=2,
+                        stride=1,
                         in_chans=cfg.embed_dim[1],
                         embed_dim=cfg.embed_dim[2]
                     )
 
     def forward(self, x):
+        # import ipdb; ipdb.set_trace()
         x = self.stem(x)
         if self.grad_checkpointing and not torch.jit.is_scripting():
             for stage in self.stages:
@@ -263,8 +269,10 @@ class MbConvStages(nn.Module):
         else:
             for stage in self.stages:
                 x = stage(x)
+            # print("before pool -> ",x.shape)
+            
             x = self.pool(x)
-        
+        # print("------>",x.shape)
         return x
 
 class GeGluMlp(nn.Module):
@@ -297,7 +305,7 @@ class HybridEmbed(nn.Module):
     def __init__(
             self,
             backbone,
-            img_size=224,
+            img_size=256,
             patch_size=1,
             feature_size=None,
             in_chans=3,
@@ -312,6 +320,7 @@ class HybridEmbed(nn.Module):
         self.img_size = img_size
         self.patch_size = patch_size
         self.backbone = backbone
+
         with torch.no_grad():
             training = backbone.training
             if training:
@@ -323,6 +332,7 @@ class HybridEmbed(nn.Module):
             feature_dim = o.shape[1]
             backbone.train(training)
 
+        # import ipdb; ipdb.set_trace()
         assert feature_size[0] % patch_size[0] == 0 and feature_size[1] % patch_size[1] == 0
         self.grid_size = (feature_size[0] // patch_size[0], feature_size[1] // patch_size[1])
         self.num_patches = self.grid_size[0] * self.grid_size[1]
@@ -365,7 +375,7 @@ def _create_vision_transformer_hybrid(variant, backbone, pretrained=False, **kwa
 @register_model
 def vitamin_small(pretrained=False, **kwargs) -> VisionTransformer:
     stage_1_2 = MbConvStages(cfg=VitCfg(
-            embed_dim=(64, 128, 384),
+            embed_dim=(64, 128, 512),
             depths=(2, 4, 1),
             stem_width=64,
             conv_cfg = VitConvCfg(
@@ -375,7 +385,7 @@ def vitamin_small(pretrained=False, **kwargs) -> VisionTransformer:
             head_type='1d',
         ),
     )
-    stage3_args = dict(embed_dim=384, depth=14, num_heads=6, mlp_layer=GeGluMlp, mlp_ratio=2., class_token=False, global_pool='avg')
+    stage3_args = dict(embed_dim=512, depth=14, num_heads=8, mlp_layer=GeGluMlp, mlp_ratio=2., class_token=False, global_pool='avg')
     model = _create_vision_transformer_hybrid('vitamin_small', backbone=stage_1_2, pretrained=pretrained, **dict(stage3_args, **kwargs))
     return model
 
@@ -383,9 +393,9 @@ def vitamin_small(pretrained=False, **kwargs) -> VisionTransformer:
 @register_model
 def vitamin_base(pretrained=False, **kwargs) -> VisionTransformer:
     stage_1_2 = MbConvStages(cfg=VitCfg(
-            embed_dim=(128, 256, 768),
+            embed_dim=(128,256, 512),
             depths=(2, 4, 1),
-            stem_width=128,
+            stem_width=160,
             conv_cfg = VitConvCfg(
                 norm_layer='layernorm2d',
                 norm_eps=1e-6,
@@ -393,7 +403,7 @@ def vitamin_base(pretrained=False, **kwargs) -> VisionTransformer:
             head_type='1d',
         ),
     )
-    stage3_args = dict(embed_dim=768, depth=14, num_heads=12, mlp_layer=GeGluMlp, mlp_ratio=2., class_token=False, global_pool='avg')
+    stage3_args = dict(embed_dim=512, depth=14, num_heads=8, mlp_layer=GeGluMlp, mlp_ratio=2., class_token=False, global_pool='avg')
     model = _create_vision_transformer_hybrid('vitamin_base', backbone=stage_1_2, pretrained=pretrained, **dict(stage3_args, **kwargs))
     return model
 
@@ -539,7 +549,7 @@ def count_stage_params(model: nn.Module, prefix='none'):
 def train_transform():
     transform_list = [
         transforms.Resize(size=(512, 512)),
-        transforms.RandomCrop(224), 
+        transforms.RandomCrop(256), 
         transforms.ToTensor()
     ]
     return transforms.Compose(transform_list)
@@ -548,7 +558,7 @@ def train_transform():
 if __name__ == "__main__":
 
     dev = (torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu'))
-    model = timm.create_model('vitamin_small',pretrained=False).to(dev)
+    model = timm.create_model('vitamin_base',pretrained=False).to(dev)
 
 
     # print(model)
@@ -558,12 +568,13 @@ if __name__ == "__main__":
     image = Image.open('datasets/dh/testA/0.png').convert('RGB')
 
     img = ctran(image).unsqueeze(0).to(dev)
-
+    print(f"img shape: {img.shape}")
     ans = model(img)
 
     ans2 = model.forward_features(img)
 
-    print(ans2.shape)
+    print(f"features shape: {ans2.shape}")
+
 
 
     # import ipdb; ipdb.set_trace()

@@ -13,6 +13,7 @@ from models.sampler import InfiniteSamplerWrapper
 from models.VitaminEncoder import *
 import models.transformer as transformer
 import models.transDecoder as transDecoder
+from models.Mytrans import MytransDecoder
 import models.StyTR  as StyTR 
 import timm
 from torchvision.utils import save_image
@@ -24,7 +25,7 @@ from torchsummary import summary
 def train_transform():
     transform_list = [
         transforms.Resize(size=(512, 512)),
-        transforms.RandomCrop(224), 
+        transforms.RandomCrop(256), 
         transforms.ToTensor()
     ]
     return transforms.Compose(transform_list)
@@ -129,14 +130,15 @@ vgg = nn.Sequential(*list(vgg.children())[:44])
 decoder = StyTR.decoder
 embedding = StyTR.PatchEmbed().to(device)
 Trans = transformer.Transformer()
+Mytrans = MytransDecoder().to(device)
 
 # 加载Vitamin的Encoder
-vitaminEncoder = timm.create_model('vitamin_small',pretrained=False).to(device)
+vitaminEncoder = timm.create_model('vitamin_base',pretrained=False).to(device)
 
 
 # 各个模块拼接 组成整体网络
 with torch.no_grad():
-    network = StyTR.StyTrans(vgg,decoder,embedding, Trans,vitaminEncoder,args)
+    network = StyTR.StyTrans(vgg,decoder,Mytrans,vitaminEncoder,args)
 network.train()
 
 network.to(device)
@@ -165,14 +167,14 @@ style_iter = iter(data.DataLoader(
     style_dataset, batch_size=args.batch_size,
     sampler=InfiniteSamplerWrapper(style_dataset),
     num_workers=args.n_threads))
- 
+
+
 
 # 定义优化器
 optimizer = torch.optim.Adam([ 
-                            #   {'params': network.transformer.parameters()},
                             {'params': network.vitaEncoder.parameters()},
                               {'params': network.decode.parameters()},
-                              {'params': network.embedding.parameters()},        
+                              {'params': network.TransDecoder.parameters()},        
                               ], lr=args.lr)
 
 if not os.path.exists(args.save_dir+"/test"):
@@ -191,11 +193,11 @@ for i in progress_bar:
     # 从迭代器中加载内容和风格图像
     content_images = next(content_iter).to(device)
     style_images = next(style_iter).to(device)  
-    print(content_images.shape,style_images.shape)
+    # print(content_images.shape,style_images.shape)
 
     # 
-    out, loss_c, loss_s,l_identity1, l_identity2,LHSV = network(content_images, style_images)
-
+    out, loss_c, loss_s,l_identity1, l_identity2, LHSV = network(content_images, style_images)
+    # print(loss_c.sum().cpu().detach().numpy(),loss_s.sum().cpu().detach().numpy(),l_identity1.sum().cpu().detach().numpy(),l_identity2.sum().cpu().detach().numpy(),LHSV.sum().cpu().detach().numpy())
     if i % 100 == 0:
         output_name = '{:s}/test/{:s}{:s}'.format(
                         args.save_dir, str(i),".jpg"

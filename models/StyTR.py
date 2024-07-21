@@ -14,7 +14,7 @@ from util.HSV import HSV
 from util.misc import get_edge
 import matplotlib.pyplot as plt 
 
-from models.transDecoder import TransformerDecoder,TransformerDecoderLayer
+
 
 
 class DepthwiseConv(nn.Module):
@@ -134,8 +134,6 @@ class PatchEmbed(nn.Module):
 
 
         part_size = embed_dim // 2
-
-        print(f"part_size = {part_size}")
         self.dw1 = DepthwiseConv(in_channels = part_size, kernel_size=3, padding=1)
         self.dw2 = DepthwiseConv(in_channels = part_size, kernel_size=5, padding=2)
         self.c1 = nn.Conv2d(1024, 512, kernel_size=1)
@@ -183,7 +181,44 @@ decoder = nn.Sequential(
     nn.ReflectionPad2d((1, 1, 1, 1)),
     nn.Conv2d(64, 3, (3, 3)),
 )
-
+# decoder = nn.Sequential(
+#     nn.ReflectionPad2d((1, 1, 1, 1)),
+#     nn.Conv2d(512, 256, (3, 3)),
+#     nn.ReLU(),
+#     nn.Upsample(scale_factor=2, mode='nearest'),  # 16x16 -> 32x32
+#     nn.ReflectionPad2d((1, 1, 1, 1)),
+#     nn.Conv2d(256, 256, (3, 3)),
+#     nn.ReLU(),
+#     nn.ReflectionPad2d((1, 1, 1, 1)),
+#     nn.Conv2d(256, 256, (3, 3)),
+#     nn.ReLU(),
+#     nn.ReflectionPad2d((1, 1, 1, 1)),
+#     nn.Conv2d(256, 256, (3, 3)),
+#     nn.ReLU(),
+#     nn.ReflectionPad2d((1, 1, 1, 1)),
+#     nn.Conv2d(256, 128, (3, 3)),
+#     nn.ReLU(),
+#     nn.Upsample(scale_factor=2, mode='nearest'),  # 32x32 -> 64x64
+#     nn.ReflectionPad2d((1, 1, 1, 1)),
+#     nn.Conv2d(128, 128, (3, 3)),
+#     nn.ReLU(),
+#     nn.ReflectionPad2d((1, 1, 1, 1)),
+#     nn.Conv2d(128, 64, (3, 3)),
+#     nn.ReLU(),
+#     nn.Upsample(scale_factor=2, mode='nearest'),  # 64x64 -> 128x128
+#     nn.ReflectionPad2d((1, 1, 1, 1)),
+#     nn.Conv2d(64, 64, (3, 3)),
+#     nn.ReLU(),
+#     nn.ReflectionPad2d((1, 1, 1, 1)),
+#     nn.Conv2d(64, 32, (3, 3)),
+#     nn.ReLU(),
+#     nn.Upsample(scale_factor=2, mode='nearest'),  # 128x128 -> 256x256
+#     nn.ReflectionPad2d((1, 1, 1, 1)),
+#     nn.Conv2d(32, 32, (3, 3)),
+#     nn.ReLU(),
+#     nn.ReflectionPad2d((1, 1, 1, 1)),
+#     nn.Conv2d(32, 3, (3, 3)),
+# )
 vgg = nn.Sequential(
     nn.Conv2d(3, 3, (1, 1)),
     nn.ReflectionPad2d((1, 1, 1, 1)),
@@ -257,7 +292,7 @@ class MLP(nn.Module):
 class StyTrans(nn.Module):
     """ This is the style transform transformer module """
     
-    def __init__(self,encoder,decoder,PatchEmbed, transformer,vitaminEncoder,args):
+    def __init__(self,encoder,decoder,Mytrans, vitaminEncoder,args):
         """
             encoder: vgg
             decoder: StyTR.decoder
@@ -274,23 +309,16 @@ class StyTrans(nn.Module):
         self.enc_4 = nn.Sequential(*enc_layers[18:31])  # relu3_1 -> relu4_1
         self.enc_5 = nn.Sequential(*enc_layers[31:44])  # relu4_1 -> relu5_1
 
-
-        decoder_norm = nn.LayerNorm(384)
-        decoder_layer = TransformerDecoderLayer(d_model = 384, nhead = 8, dim_feedforward = 2048, dropout = 0.1, activation = "relu", normalize_before = False)
-        self.TransDecoder = TransformerDecoder(decoder_layer = decoder_layer,num_layers=3,norm = decoder_norm,return_intermediate = False)
-
         # 不需要梯度
         for name in ['enc_1', 'enc_2', 'enc_3', 'enc_4', 'enc_5']:
             for param in getattr(self, name).parameters():
                 param.requires_grad = False
 
         # mse_loss 
-        self.mse_loss = nn.MSELoss()
-        self.transformerDecoder = transformer
-        hidden_dim = transformer.d_model       
+        self.mse_loss = nn.MSELoss()      
         self.decode = decoder
-        self.embedding = PatchEmbed
         self.vitaEncoder = vitaminEncoder
+        self.TransDecoder = Mytrans
 
     def encode_with_intermediate(self, input):
         results = [input]
@@ -340,42 +368,31 @@ class StyTrans(nn.Module):
 
         style = self.vitaEncoder.forward_features(samples_s.tensors)
         content = self.vitaEncoder.forward_features(samples_c.tensors)
+        print(f"after vitaminEncoder: style: {style.size()}, content: {content.size()}")
         # torch.Size([4, 196, 384])
          # input:  [1024, 4, 512]   h*w,b,c   256的图片
         # ouptput: [1024, 4, 512]  h*w,b,c   256的图片
 
         # torch.Size([4, 196, 384])  - > [196, 4, 384]
 
-        style = style.permute(1, 0, 2)
-        content = content.permute(1, 0, 2)
-
-        # 计算hs？ 解码hs 得到Ics
-        hs = self.TransDecoder(content,style,None,None,None)[0]
-        N,B,C = hs.shape
-        H = int(np.sqrt(N))
-        hs = hs.permute(1, 2, 0).view(B,C,-1,H)
-        import ipdb; ipdb.set_trace()
-
-
+        # style = style.permute(1, 0, 2)
+        # content = content.permute(1, 0, 2)
+        hs = self.TransDecoder(content,style)
 
         # ### Linear projection
         # style = self.embedding(samples_s.tensors)
         # content = self.embedding(samples_c.tensors)
 
-        # # [4,512,32,32] b c h w 
-        # # print("content_input_emedding_4:",content.size())
-
-        
-        # # postional embedding is calculated in transformer.py
-        pos_s = None
-        pos_c = None
-
-        mask = None
-        # hs = self.transformer(style, mask , content, pos_c, pos_s)  
-        # # torch.Size([4, 512, 32, 32])
-
-
         Ics = self.decode(hs)
+        import ipdb; ipdb.set_trace()
+        # 画出Ics
+
+        img_Ics = Ics.cpu().permute(0, 2, 3, 1).detach().numpy()  # [4,256,256,3]
+        for i in range(img_Ics.shape[0]):
+            plt.imshow(img_Ics[i])
+            plt.savefig(f"./Ics_{i}.png",dpi = 120)
+
+
 
         Ics_feats = self.encode_with_intermediate(Ics)
 
@@ -392,8 +409,11 @@ class StyTrans(nn.Module):
             loss_s += self.calc_style_loss(Ics_feats[i], style_feats[i])
         
         # 输入自身图片，得到重建后的图片
-        Icc = self.decode(self.transformer(content, mask , content, pos_c, pos_c))
-        Iss = self.decode(self.transformer(style, mask , style, pos_s, pos_s))    
+
+        Icc = self.decode(self.TransDecoder(content,content))
+        Iss = self.decode(self.TransDecoder(style,style))
+        # Icc = self.decode(self.transformer(content, mask , content, pos_c, pos_c))
+        # Iss = self.decode(self.transformer(style, mask , style, pos_s, pos_s))    
 
         # Identity losses lambda 1    
         # 一致性损失 
@@ -403,6 +423,8 @@ class StyTrans(nn.Module):
         # Identity losses lambda 2
         Icc_feats=self.encode_with_intermediate(Icc)
         Iss_feats=self.encode_with_intermediate(Iss)
+
+
         loss_lambda2 = self.calc_content_loss(Icc_feats[0], content_feats[0])+self.calc_content_loss(Iss_feats[0], style_feats[0])
         for i in range(1, 5):
             loss_lambda2 += self.calc_content_loss(Icc_feats[i], content_feats[i])+self.calc_content_loss(Iss_feats[i], style_feats[i])
@@ -440,12 +462,6 @@ class StyTrans(nn.Module):
         #Lambda_HSV: 10
         #Lambda_LHSV: 1
         LHSV = 20 * HSV_loss_H + 10 * HSV_loss_S
-
-
-
         return Ics,  loss_c, loss_s, loss_lambda1, loss_lambda2, LHSV   #train
         # return Ics,  LHSV   #train
-
-    
-
         # return Ics    #test 
